@@ -210,4 +210,26 @@ def build_model() -> Pipeline:
     )
 
 
+def build_linear_regression_model() -> Pipeline:
+    """Build Linear Regression comparison model."""
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("numeric", "passthrough", NUMERIC_FEATURES),
+            (
+                "categorical",
+                OneHotEncoder(handle_unknown="ignore"),
+                CATEGORICAL_FEATURES,
+            ),
+        ]
+    )
+
+    regressor = LinearRegression()
+
+    return Pipeline(
+        steps=[
+            ("preprocess", preprocessor),
+            ("model", regressor),
+        ]
+    )
 
