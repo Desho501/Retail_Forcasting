@@ -182,3 +182,32 @@ def prepare_modeling_data(weekly_df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+# -----------------------------------------------------------------------------
+# Model and metrics
+# -----------------------------------------------------------------------------
+
+def build_model() -> Pipeline:
+    """Build the Random Forest model pipeline."""
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("numeric", "passthrough", NUMERIC_FEATURES),
+            ("categorical", OneHotEncoder(handle_unknown="ignore"), CATEGORICAL_FEATURES),
+        ]
+    )
+
+    regressor = RandomForestRegressor(
+        n_estimators=N_ESTIMATORS,
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+        min_samples_leaf=MIN_SAMPLES_LEAF,
+    )
+
+    return Pipeline(
+        steps=[
+            ("preprocess", preprocessor),
+            ("model", regressor),
+        ]
+    )
+
+
+
