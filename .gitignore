@@ -1,0 +1,16 @@
+# M5 raw dataset
+master_final/m5_dataset/
+
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Model files
+*.joblib
+
+# Environment files
+.env
