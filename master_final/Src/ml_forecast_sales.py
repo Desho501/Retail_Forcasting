@@ -134,3 +134,51 @@ def load_weekly_sales(engine) -> pd.DataFrame:
     print(f"Stores: {df['store_id'].nunique()}, Categories: {df['cat_id'].nunique()}")
 
     return df
+
+# -----------------------------------------------------------------------------
+# Feature engineering
+# -----------------------------------------------------------------------------
+
+def add_date_features(df: pd.DataFrame) -> pd.DataFrame:
+
+    df = df.copy()
+    df["year"] = df["week_start"].dt.year
+    df["month"] = df["week_start"].dt.month
+    df["quarter"] = df["week_start"].dt.quarter
+    df["week_of_year"] = df["week_start"].dt.isocalendar().week.astype(int)
+    return df
+
+
+def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
+
+    df = df.copy().sort_values(GROUP_COLS + ["week_start"])
+    grouped = df.groupby(GROUP_COLS, group_keys=False)[TARGET_COL]
+
+    df["lag_1"] = grouped.shift(1)
+    df["lag_2"] = grouped.shift(2)
+    df["lag_4"] = grouped.shift(4)
+
+    df["rolling_4"] = grouped.transform(
+        lambda s: s.shift(1).rolling(window=4, min_periods=1).mean()
+    )
+    df["rolling_8"] = grouped.transform(
+        lambda s: s.shift(1).rolling(window=8, min_periods=1).mean()
+    )
+
+    return df
+
+
+def prepare_modeling_data(weekly_df: pd.DataFrame) -> pd.DataFrame:
+ 
+    df = add_date_features(weekly_df)
+    df = add_lag_features(df)
+
+    # Rows at the very beginning of each store/category series will not have lags.
+    df = df.dropna(subset=["lag_1", "lag_2", "lag_4", "rolling_4", "rolling_8"])
+    df = df.sort_values(GROUP_COLS + ["week_start"]).reset_index(drop=True)
+
+    if df.empty:
+        raise ValueError("After creating lag features, no modeling rows remain.")
+
+    return df
+
