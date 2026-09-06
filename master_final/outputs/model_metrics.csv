@@ -1,0 +1,4 @@
+model,MAE,RMSE,WAPE_percent,MAPE_percent
+Baseline - Last Week Sales,709.0083,1455.7228,7.1069,6.6424
+Linear Regression,561.922,914.4621,5.6326,6.29
+Random Forest Regression,544.013,952.9164,5.4531,5.505
