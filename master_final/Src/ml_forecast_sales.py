@@ -280,3 +280,108 @@ def calculate_metrics(actual: Iterable[float], predicted: Iterable[float], model
         "WAPE_percent": round(wape, 4) if not np.isnan(wape) else np.nan,
         "MAPE_percent": round(mape, 4) if not np.isnan(mape) else np.nan,
     }
+
+
+# -----------------------------------------------------------------------------
+# Plotting and outputs
+# -----------------------------------------------------------------------------
+
+def save_actual_vs_predicted_plots(predictions: pd.DataFrame) -> None:
+    """Save actual vs predicted charts for the report and Power BI evidence."""
+    # Overall chart by week
+    weekly_plot = (
+        predictions.groupby("week_start", as_index=False)
+        .agg(
+            actual_units_sold=("actual_units_sold", "sum"),
+            predicted_units_sold=("predicted_units_sold", "sum"),
+        )
+        .sort_values("week_start")
+    )
+
+    plt.figure(figsize=(11, 6))
+    plt.plot(weekly_plot["week_start"], weekly_plot["actual_units_sold"], label="Actual")
+    plt.plot(weekly_plot["week_start"], weekly_plot["predicted_units_sold"], label="Predicted")
+    plt.title("Actual vs Predicted Weekly Sales - All Stores and Categories")
+    plt.xlabel("Week")
+    plt.ylabel("Units Sold")
+    plt.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "actual_vs_predicted_by_week.png", dpi=150)
+    plt.close()
+
+    # Sample group chart: first store/category in the test data
+    first_store = predictions["store_id"].iloc[0]
+    first_cat = predictions["cat_id"].iloc[0]
+    sample = predictions[
+        (predictions["store_id"] == first_store) & (predictions["cat_id"] == first_cat)
+    ].sort_values("week_start")
+
+    plt.figure(figsize=(11, 6))
+    plt.plot(sample["week_start"], sample["actual_units_sold"], label="Actual")
+    plt.plot(sample["week_start"], sample["predicted_units_sold"], label="Predicted")
+    plt.title(f"Actual vs Predicted Weekly Sales - {first_store} / {first_cat}")
+    plt.xlabel("Week")
+    plt.ylabel("Units Sold")
+    plt.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "actual_vs_predicted_sample_group.png", dpi=150)
+    plt.close()
+
+def save_feature_importance(model: Pipeline) -> pd.DataFrame:
+    """Save and plot Random Forest feature importance."""
+
+    preprocessor = model.named_steps["preprocess"]
+    random_forest = model.named_steps["model"]
+
+    feature_names = preprocessor.get_feature_names_out()
+    importances = random_forest.feature_importances_
+
+    importance_df = pd.DataFrame({
+        "feature": feature_names,
+        "importance": importances
+    })
+
+    # Clean the names added by ColumnTransformer
+    importance_df["feature"] = (
+        importance_df["feature"]
+        .str.replace("numeric__", "", regex=False)
+        .str.replace("categorical__", "", regex=False)
+    )
+
+    importance_df = importance_df.sort_values(
+        "importance", ascending=False
+    ).reset_index(drop=True)
+
+    importance_df["importance_percent"] = (
+        importance_df["importance"] * 100
+    )
+
+    # Save full results
+    importance_df.to_csv(
+        OUTPUT_DIR / "feature_importance.csv",
+        index=False
+    )
+
+    # Plot the 15 most important features
+    top_features = importance_df.head(15).sort_values(
+        "importance", ascending=True
+    )
+
+    plt.figure(figsize=(10, 6))
+    plt.barh(
+        top_features["feature"],
+        top_features["importance_percent"]
+    )
+    plt.xlabel("Feature Importance (%)")
+    plt.ylabel("Feature")
+    plt.title("Random Forest Feature Importance")
+    plt.tight_layout()
+    plt.savefig(
+        OUTPUT_DIR / "feature_importance.png",
+        dpi=150
+    )
+    plt.close()
+
+    return importance_df
