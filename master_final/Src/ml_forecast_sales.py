@@ -233,3 +233,50 @@ def build_linear_regression_model() -> Pipeline:
         ]
     )
 
+
+def time_based_split(df: pd.DataFrame, test_weeks: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+   
+    unique_weeks = sorted(df["week_start"].unique())
+
+    if len(unique_weeks) <= test_weeks:
+        raise ValueError(
+            f"Not enough weeks for a {test_weeks}-week test set. "
+            f"Only found {len(unique_weeks)} weeks."
+        )
+
+    cutoff_week = unique_weeks[-test_weeks]
+    train_df = df[df["week_start"] < cutoff_week].copy()
+    test_df = df[df["week_start"] >= cutoff_week].copy()
+
+    print(f"Training rows: {len(train_df):,}")
+    print(f"Testing rows: {len(test_df):,}")
+    print(f"Test starts on: {pd.Timestamp(cutoff_week).date()}")
+
+    return train_df, test_df
+
+
+
+def calculate_metrics(actual: Iterable[float], predicted: Iterable[float], model_name: str) -> dict:
+
+    y_true = np.asarray(actual, dtype=float)
+    y_pred = np.asarray(predicted, dtype=float)
+
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = math.sqrt(mean_squared_error(y_true, y_pred))
+
+    total_actual = np.sum(np.abs(y_true))
+    wape = np.nan if total_actual == 0 else np.sum(np.abs(y_true - y_pred)) / total_actual * 100
+
+    nonzero_mask = y_true != 0
+    if nonzero_mask.sum() == 0:
+        mape = np.nan
+    else:
+        mape = np.mean(np.abs((y_true[nonzero_mask] - y_pred[nonzero_mask]) / y_true[nonzero_mask])) * 100
+
+    return {
+        "model": model_name,
+        "MAE": round(mae, 4),
+        "RMSE": round(rmse, 4),
+        "WAPE_percent": round(wape, 4) if not np.isnan(wape) else np.nan,
+        "MAPE_percent": round(mape, 4) if not np.isnan(mape) else np.nan,
+    }
