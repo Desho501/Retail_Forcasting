@@ -466,3 +466,108 @@ def forecast_future(model: Pipeline, weekly_df: pd.DataFrame, forecast_weeks: in
         history = pd.concat([history, append_history], ignore_index=True)
 
     return pd.concat(forecast_rows, ignore_index=True)
+
+# -----------------------------------------------------------------------------
+# Main workflow
+# -----------------------------------------------------------------------------
+
+def main() -> None:
+    print("Starting ML retail sales forecasting workflow...")
+
+    engine = get_engine()
+    test_connection(engine)
+
+    # 1. Load weekly sales from PostgreSQL
+    weekly_df = load_weekly_sales(engine)
+    weekly_df.to_csv(OUTPUT_DIR / "weekly_sales_input.csv", index=False)
+
+    # 2. Create forecasting features
+    model_df = prepare_modeling_data(weekly_df)
+
+    # 3. Train/test split based on time
+    train_df, test_df = time_based_split(model_df, TEST_WEEKS)
+
+    X_train = train_df[FEATURE_COLS]
+    y_train = train_df[TARGET_COL]
+    X_test = test_df[FEATURE_COLS]
+    y_test = test_df[TARGET_COL]
+
+    # 4. Baseline model: predict same sales as last week
+    baseline_predictions = np.clip(test_df["lag_1"].to_numpy(dtype=float), a_min=0, a_max=None)
+
+    # 5. Linear Regression comparison model
+    linear_model = build_linear_regression_model()
+
+    print("Training Linear Regression model...")
+    linear_model.fit(X_train, y_train)
+
+    linear_predictions = linear_model.predict(X_test)
+    linear_predictions = np.clip(
+        linear_predictions,
+        a_min=0,
+        a_max=None
+    )
+
+    # 6. Random Forest model
+    model = build_model()
+    print("Training Random Forest model...")
+    model.fit(X_train, y_train)
+
+    # 7. Feature importance
+    feature_importance_df = save_feature_importance(model)
+    print("\nFeature importance:")
+    print(feature_importance_df.to_string(index=False))
+
+    ml_predictions = model.predict(X_test)
+    ml_predictions = np.clip(ml_predictions, a_min=0, a_max=None)
+
+    # 8. Evaluate
+    metrics = [
+        calculate_metrics(y_test, baseline_predictions, "Baseline - Last Week Sales"),
+        calculate_metrics(y_test, linear_predictions, "Linear Regression"),
+        calculate_metrics(y_test, ml_predictions, "Random Forest Regression"),
+    ]
+    metrics_df = pd.DataFrame(metrics)
+    metrics_df.to_csv(OUTPUT_DIR / "model_metrics.csv", index=False)
+
+    print("\nModel metrics:")
+    print(metrics_df.to_string(index=False))
+
+    # 9. Save test predictions
+    predictions_df = test_df[["week_start", "store_id", "cat_id", TARGET_COL]].copy()
+    predictions_df = predictions_df.rename(columns={TARGET_COL: "actual_units_sold"})
+    predictions_df["predicted_units_sold"] = ml_predictions
+    predictions_df["predicted_units_sold_rounded"] = np.rint(ml_predictions).astype(int)
+    predictions_df["linear_regression_prediction"] = linear_predictions
+    predictions_df["baseline_prediction"] = baseline_predictions
+    predictions_df["error"] = predictions_df["actual_units_sold"] - predictions_df["predicted_units_sold"]
+    predictions_df["absolute_error"] = predictions_df["error"].abs()
+    predictions_df["percent_error"] = np.where(
+        predictions_df["actual_units_sold"] != 0,
+        predictions_df["absolute_error"] / predictions_df["actual_units_sold"] * 100,
+        np.nan,
+    )
+    predictions_df.to_csv(OUTPUT_DIR / "test_predictions.csv", index=False)
+
+    # 10. Save charts
+    save_actual_vs_predicted_plots(predictions_df)
+
+    # 11. Train final model on all available modeling data, then forecast future weeks
+    print(f"Training final model on all data and forecasting next {FORECAST_WEEKS} weeks...")
+    final_model = build_model()
+    final_model.fit(model_df[FEATURE_COLS], model_df[TARGET_COL])
+
+    future_df = forecast_future(final_model, weekly_df, FORECAST_WEEKS)
+    future_output_name = f"future_{FORECAST_WEEKS}_week_forecast.csv"
+    future_df.to_csv(OUTPUT_DIR / future_output_name, index=False)
+
+    # 12. Save trained model
+    joblib.dump(final_model, OUTPUT_DIR / "random_forest_sales_forecast.joblib")
+
+
+    print("\nDone. Files saved in:")
+    print(OUTPUT_DIR)
+
+if __name__ == "__main__":
+    main()
+    
