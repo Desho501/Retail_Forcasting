@@ -385,3 +385,84 @@ def save_feature_importance(model: Pipeline) -> pd.DataFrame:
     plt.close()
 
     return importance_df
+
+
+# -----------------------------------------------------------------------------
+# Future forecasting
+# -----------------------------------------------------------------------------
+
+def create_future_feature_rows(history_df: pd.DataFrame, forecast_week: pd.Timestamp) -> pd.DataFrame:
+
+    rows = []
+    history_df = history_df.sort_values(GROUP_COLS + ["week_start"])
+
+    for group_values, group in history_df.groupby(GROUP_COLS):
+        store_id, cat_id = group_values
+        group = group.sort_values("week_start")
+        sales = group[TARGET_COL].astype(float).to_numpy()
+
+        if len(sales) < 8:
+           
+            continue
+
+        row = {
+            "week_start": forecast_week,
+            "store_id": store_id,
+            "cat_id": cat_id,
+            "year": forecast_week.year,
+            "month": forecast_week.month,
+            "quarter": forecast_week.quarter,
+            "week_of_year": int(forecast_week.isocalendar().week),
+            "lag_1": sales[-1],
+            "lag_2": sales[-2],
+            "lag_4": sales[-4],
+            "rolling_4": float(np.mean(sales[-4:])),
+            "rolling_8": float(np.mean(sales[-8:])),
+        }
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def forecast_future(model: Pipeline, weekly_df: pd.DataFrame, forecast_weeks: int) -> pd.DataFrame:
+    """Forecast the next N weeks using iterative predictions."""
+    history = weekly_df[["week_start", "store_id", "cat_id", TARGET_COL]].copy()
+    history = history.sort_values(GROUP_COLS + ["week_start"])
+
+    forecast_rows = []
+    last_week = history["week_start"].max()
+
+    for step in range(1, forecast_weeks + 1):
+        forecast_week = last_week + pd.Timedelta(days=7 * step)
+        future_features = create_future_feature_rows(history, forecast_week)
+
+        if future_features.empty:
+            raise ValueError("No future feature rows could be created. Check group history length.")
+
+        future_pred = model.predict(future_features[FEATURE_COLS])
+        future_pred = np.clip(future_pred, a_min=0, a_max=None)
+
+        future_features["predicted_units_sold"] = future_pred
+        future_features["predicted_units_sold_rounded"] = np.rint(future_pred).astype(int)
+        future_features["forecast_step"] = step
+
+        forecast_rows.append(
+            future_features[
+                [
+                    "forecast_step",
+                    "week_start",
+                    "store_id",
+                    "cat_id",
+                    "predicted_units_sold",
+                    "predicted_units_sold_rounded",
+                ]
+            ]
+        )
+
+        # Add predictions back into history so week 2 uses week 1 forecast as lag_1.
+        append_history = future_features[["week_start", "store_id", "cat_id", "predicted_units_sold"]].rename(
+            columns={"predicted_units_sold": TARGET_COL}
+        )
+        history = pd.concat([history, append_history], ignore_index=True)
+
+    return pd.concat(forecast_rows, ignore_index=True)
